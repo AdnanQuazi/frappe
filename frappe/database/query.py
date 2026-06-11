@@ -1736,10 +1736,10 @@ class Engine:
 			return ""
 
 		if not self.ignore_user_permissions:
-			match_filters = []
+			match_filters = {}
 			user_permissions = frappe.permissions.get_user_permissions(self.user)
 			if not user_permissions:
-				return match_filters
+				return []
 
 			for df in self.get_doctype_link_fields(self.doctype):
 				if df.get("ignore_user_permissions"):
@@ -1764,9 +1764,9 @@ class Engine:
 							docs.append(doc)
 
 					if docs:
-						match_filters.append({options: docs})
+						match_filters[options] = docs
 
-			return match_filters
+			return [match_filters] if match_filters else []
 
 		return []
 

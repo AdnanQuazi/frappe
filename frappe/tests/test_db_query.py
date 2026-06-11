@@ -228,6 +228,49 @@ class TestDBQuery(IntegrationTestCase):
 
 		frappe.set_user("Administrator")
 
+	def test_build_match_conditions_multiple_link_fields(self):
+		dt_name = "Test Multi Perm DocType"
+		frappe.delete_doc_if_exists("DocType", dt_name)
+		dt = new_doctype(
+			dt_name,
+			fields=[
+				{"fieldname": "user_link", "fieldtype": "Link", "options": "User", "label": "User Link"},
+				{"fieldname": "role_link", "fieldtype": "Link", "options": "Role", "label": "Role Link"},
+			],
+			permissions=[{"role": "Blogger", "read": 1}],
+		).insert(ignore_if_duplicate=True)
+
+		test_user = "test_multi_perm@example.com"
+		if not frappe.db.exists("User", test_user):
+			frappe.get_doc({"doctype": "User", "email": test_user, "first_name": "Test Multi Perm"}).insert(ignore_permissions=True)
+		
+		test_user_doc = frappe.get_doc("User", test_user)
+		test_user_doc.add_roles("Blogger")
+
+		clear_user_permissions_for_doctype("User", test_user)
+		clear_user_permissions_for_doctype("Role", test_user)
+
+		add_user_permission("User", "Administrator", test_user, True)
+		add_user_permission("Role", "System Manager", test_user, True)
+
+		frappe.set_user(test_user)
+
+		build_match_conditions = DatabaseQuery(dt_name).build_match_conditions
+		match_filters = build_match_conditions(as_condition=False)
+
+		self.assertEqual(len(match_filters), 1, "Should return a single dictionary enforcing AND logic across fields.")
+		
+		condition_dict = match_filters[0]
+		self.assertIn("User", condition_dict)
+		self.assertIn("Role", condition_dict)
+		self.assertIn("Administrator", condition_dict["User"])
+		self.assertIn("System Manager", condition_dict["Role"])
+
+		frappe.set_user("Administrator")
+		clear_user_permissions_for_doctype("User", test_user)
+		clear_user_permissions_for_doctype("Role", test_user)
+		dt.delete()
+
 	def test_fields(self):
 		self.assertTrue(
 			{"name": "DocType", "issingle": 0}
