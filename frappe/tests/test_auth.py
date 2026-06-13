@@ -168,6 +168,52 @@ class TestAuth(IntegrationTestCase):
 		current_time = datetime.datetime.now(tz=datetime.UTC).timestamp()
 		self.assertAlmostEqual(get_expiry_in_seconds(), expiry_time - current_time, delta=60 * 60)
 
+	def test_validate_ip_address(self):
+		"""
+		Ensure that IP restriction properly handles strict matching and doesn't allow bypasses via prefix matching.
+		Also ensures that partial IP addresses (like subnets) are handled securely.
+		"""
+		from frappe.auth import validate_ip_address
+
+		# 1. Strict IP check (Spoofing)
+		user = frappe.get_doc("User", self.test_user_email)
+		user.restrict_ip = "192.168.1.1"
+		user.bypass_restrict_ip_check_if_2fa_enabled = 0
+		user.save()
+
+		frappe.local.request_ip = "192.168.1.123" # Spoofed attacker
+		with self.assertRaises(frappe.AuthenticationError):
+			validate_ip_address(self.test_user_email)
+
+		# 2. Secure partial IP check
+		user.restrict_ip = "111.111.111" # User intended to allow 111.111.111.*
+		user.save()
+		
+		frappe.local.request_ip = "111.111.111.50" # Valid user in subnet
+		self.assertIsNone(validate_ip_address(self.test_user_email))
+		
+		frappe.local.request_ip = "111.111.1112.50" # Invalid IP (no boundary)
+		with self.assertRaises(frappe.AuthenticationError):
+			validate_ip_address(self.test_user_email)
+
+		# 3. Trailing dot in DB check
+		user.restrict_ip = "111.111.111." # Admin manually entered trailing dot
+		user.save()
+		
+		frappe.local.request_ip = "111.111.111.50"
+		self.assertIsNone(validate_ip_address(self.test_user_email)) # Should still pass without double-dot bugs
+
+		# 4. IPv6 Secure partial IP check
+		user.restrict_ip = "2001:db8" # Admin allowed IPv6 prefix
+		user.save()
+		
+		frappe.local.request_ip = "2001:db8:3333::1" # Valid user in IPv6 subnet
+		self.assertIsNone(validate_ip_address(self.test_user_email))
+
+		frappe.local.request_ip = "2001:db89:3333::1" # Invalid IPv6 (no boundary)
+		with self.assertRaises(frappe.AuthenticationError):
+			validate_ip_address(self.test_user_email)
+
 
 class TestAllowedReferrer(UnitTestCase):
 	def test_is_allowed_referrer(self):

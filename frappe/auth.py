@@ -493,6 +493,14 @@ def validate_ip_address(user):
 
 	check_request_ip()
 	for ip in ip_list:
+		ip = ip.strip()
+		if frappe.local.request_ip == ip:
+			return
+		
+		# Secure partial match: normalize boundary delimiter to prevent spoofing
+		delimiter = ":" if ":" in ip else "."
+		ip = ip.rstrip(delimiter) + delimiter
+			
 		if frappe.local.request_ip.startswith(ip):
 			return
 
